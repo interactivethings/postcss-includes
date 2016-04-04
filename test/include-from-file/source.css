@@ -1,0 +1,3 @@
+.test {
+  includes: red from './mixin.css';
+}
