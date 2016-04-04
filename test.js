@@ -67,3 +67,8 @@ test('throws an error when referenced file does not exist', t => {
   const output = '.test{color: blue}';
   return runWithError(t, input, output);
 });
+
+test('throws an error when recursion depth exceeds allowed limit', t => {
+  const input = '.test{includes: test}';
+  return runWithError(t, input);
+});
