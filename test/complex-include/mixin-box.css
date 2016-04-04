@@ -1,0 +1,7 @@
+.borderedBox {
+  border: 1px solid black;
+}
+
+.paddedBox {
+  padding: 10px 20px;
+}

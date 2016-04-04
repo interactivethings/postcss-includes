@@ -1,0 +1,14 @@
+.base {
+  /* defaultFont */
+  includes: defaultFont;
+  /* base */
+  color: black;
+  line-height: 2;
+  margin: 1em 0;
+}
+
+.fancy {
+  includes: base;
+  /* box */
+  includes: borderedBox paddedBox from './mixin-box.css';
+}

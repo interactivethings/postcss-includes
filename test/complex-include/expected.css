@@ -1,0 +1,24 @@
+.base {
+  /* defaultFont */
+  font-family: Helvetica;
+  font-size: 12px;
+  line-height: 1.25;
+  /* base */
+  color: black;
+  line-height: 2;
+  margin: 1em 0;
+}
+
+.fancy {
+  /* defaultFont */
+  font-family: Helvetica;
+  font-size: 12px;
+  line-height: 1.25;
+  /* base */
+  color: black;
+  line-height: 2;
+  margin: 1em 0;
+  /* box */
+  border: 1px solid black;
+  padding: 10px 20px;
+}
