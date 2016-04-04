@@ -1,6 +1,6 @@
 .base {
   /* defaultFont */
-  includes: defaultFont;
+  includes: defaultFont from './mixin-fonts.css';
   /* base */
   color: black;
   line-height: 2;
