@@ -72,3 +72,19 @@ test('throws an error when recursion depth exceeds allowed limit', t => {
   const input = '.test{includes: test}';
   return runWithError(t, input);
 });
+
+test('throws an error when selector appears multiple times', t => {
+  const input = '.mixin{}.mixin{color:red;}.test{includes: mixin}';
+  return runWithError(t, input);
+});
+
+test('throws an error when similar selectors are defined alongside this selector', t => {
+  const hover = '.mixin{color:red;}.mixin:hover{color:blue;}.test{includes: mixin}';
+  return runWithError(t, hover);
+
+  const outerCascade = 'div .mixin{color:red;}.test{includes: mixin}';
+  return runWithError(t, outerCascade);
+
+  const innerCascade = '.mixin a{color:red;}.test{includes: mixin}';
+  return runWithError(t, innerCascade);
+});

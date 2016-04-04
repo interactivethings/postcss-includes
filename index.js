@@ -4,33 +4,42 @@ var INCLUDES_PROP = 'includes';
 var INCLUDES_VALUE_PATTERN = /^(.+?)(?:\s+from\s+(?:"([^"]+)"|'([^']+)'))?$/;
 
 
+/**
+ * PostCSS Includes
+ *
+ * Recursively expand all `includes` props into the CSS declarations
+ * they refer to.
+ *
+ * Input:
+ *     .bar { color: red; }
+ *     .foo { includes: bar; }
+ *
+ * Output:
+ *     .bar { color: red; }
+ *     .foo { color: red; }
+ */
 module.exports = postcss.plugin('includes', function(opts) {
   var readFile = (opts && opts.readFile) || readFileMissingError;
 
-  /*
-   Initial:
-   - Root element (container)
-   - Walk all decls where prop is "includes"
-     - For each such decl (prop-value pair) run "expandIncludes"
-       - Parse the decl.value and include declBlock from existing AST or file
-   Missing:
-   - We need to expand includes in includes recursively
-  */
   return function(cssAst /* Root */) {
     return Promise.all(walkDecls(cssAst, INCLUDES_PROP, expandIncludes(cssAst, readFile, 0)));
   };
 });
 
 
-// Function which expands all "includes" declarations in the given node (Root
-// or Rule). This function modifies the node, so make sure to clone it first
-// if you want to keep the original intact.
+/**
+ * expandIncludes
+ *
+ * Expands all `includes` declarations in the given node (Root or Rule).
+ * This function modifies the node, so make sure to clone it first if
+ * you want to keep the original intact.
+ */
 function expandIncludes(ast /* Node */, readFile, recursionDepth /* Number */) /* Promise Unit */ {
   if (recursionDepth > 10) {
-    throw new Error('expandIncludes: Recursion depth limit exeeded');
+    throw new Error('expandIncludes: Recursion depth limit exceeded');
   }
 
-  return function(decl /* Declaration with type = "includes": ... */) /* Promise Unit */ {
+  return function(decl /* Declaration with type = {prop: 'includes', value: '...'} */) /* Promise Unit */ {
 
     // Find all replacements for the "includes" declaration.
     return replacementsForDeclaration(ast, readFile, recursionDepth, decl).then(function(replacements /* [Node] */) {
@@ -48,7 +57,9 @@ function expandIncludes(ast /* Node */, readFile, recursionDepth /* Number */) /
 
 
 function replacementsForDeclaration(ast /* Root */, readFile, recursionDepth /* Number */, decl /* Declaration */) /* Promise [Node] */ {
-  // ASSERT: decl.prop === 'includes'
+  if (decl.prop !== INCLUDES_PROP) {
+    throw new Error('replacementsForDeclaration: can only work on decls with prop "'+ INCLUDES_PROP +'".');
+  }
 
   function go(localAst /* Root */, selectors /* [Selector] */) /* Promise [Node] */ {
     return Promise.all(selectors.map(function(sel /* Selector */) {
@@ -125,19 +136,35 @@ function walkDecls(css /* Root */, propFilter /* String */, transform /* (String
 
 // declForSelector :: string -> AST -> Maybe Declaration
 function declForSelector(selector) {
+  var classSelector = '.' + selector;
+
+  function similarSelector() {
+
+  }
+
   return function(css) {
-    var declarations = {};
+    var rulesForSelector = {};
     css.walkRules(function(rule) {
       rule.selectors.forEach(function(s) {
-        // FIXME: error when selector is defined multiple times
-        // FIXME: error when similar selector is available (e.g. `selector:hover` or `div selector`)
-        declarations[s] = rule;
+        if (rulesForSelector.hasOwnProperty(s)) {
+          throw new Error('declForSelector: selector is defined multiple times, can\'t merge automatically.');
+        }
+        if (s.indexOf(classSelector) >= 0 && someNonEmpty(s.split(classSelector))) {
+          throw new Error('declForSelector: the base selector is used multiple times, e.g. .mixin:hover{}, which can lead to unexpected results.');
+        }
+        rulesForSelector[s] = rule;
       });
     });
-    return declarations['.' + selector];
+    return rulesForSelector[classSelector];
   };
 }
 
 function readFileMissingError(filepath) {
   throw new Error('Could not read file at "' + filepath + '" because no `readFile` function has been passed in as a plugin option. The required function has this signature: `readFile :: filepath -> Promise string string`');
+}
+
+function someNonEmpty(arr) {
+  return arr.reduce(function(hasNonEmpty, x) {
+    return hasNonEmpty || x !== '';
+  }, false);
 }
