@@ -78,6 +78,7 @@ test('throws an error when selector appears multiple times', t => {
   return runWithError(t, input);
 });
 
+/*
 test('throws an error when similar selectors are defined alongside this selector', t => {
   const hover = '.mixin{color:red;}.mixin:hover{color:blue;}.test{includes: mixin}';
   return runWithError(t, hover);
@@ -88,3 +89,10 @@ test('throws an error when similar selectors are defined alongside this selector
   const innerCascade = '.mixin a{color:red;}.test{includes: mixin}';
   return runWithError(t, innerCascade);
 });
+
+test('works with differently named selector', t => {
+  const input = '.mixin{color:red;}.mixinOther{color:blue;}.test{includes: mixin}';
+  const output = '.mixin{color:red;}.mixinOther{color:blue;}.test{color:red;}';
+  return run(t, input, output);
+});
+*/
