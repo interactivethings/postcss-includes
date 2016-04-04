@@ -5,19 +5,30 @@ var INCLUDES_PROP = 'includes';
 module.exports = postcss.plugin('includes', function(opts) {
   var readFile = (opts && opts.readFile) || readFileMissingError;
 
+  /*
+   Initial:
+   - Root element (container)
+   - Walk all decls where prop is "includes"
+     - For each such decl (prop-value pair) run "expandIncludes"
+       - Parse the decl.value and include declBlock from existing AST or file
+   Missing:
+   - We need to expand includes in includes recursively
+  */
   return function(cssAst) {
     return new Promise(function(resolve, reject) {
+
+      // expandIncludes :: {prop: string, value: string} -> number -> Promise Unit
       var expandIncludes = function(decl /* includes: ... */, recursionDepth) {
         recursionDepth || (recursionDepth = 0);
 
-        var declBlocksToInclude = readDeclarations(decl.value, declBlockFromLocal(cssAst /* NEEDS CLONED AST */), declBlockFromFile(readFile));
+        var declBlocksToInclude = readDeclarations(decl.value, declBlockFromLocal(cssAst /* FIXME: should clone AST */), declBlockFromFile(readFile));
 
+        // insertDecls :: Promise [Declaration] -> Promise Unit
         var insertDecls = function(foreignDeclBlock) {
           return foreignDeclBlock.then(function(db) {
             return new Promise(function(res, rej) {
-              var promises;
-              promises = each(db, function(foreignDecl) {
-                return Promise.resolve(decl.cloneBefore(foreignDecl));
+              var promises = each(db, function(foreignDecl) {
+                return Promise.resolve(decl.parent.insertBefore(decl, foreignDecl));
               });
               return Promise.all(promises).then(res).catch(rej);
             });
@@ -40,6 +51,7 @@ module.exports = postcss.plugin('includes', function(opts) {
 // PURE FUNCTIONS
 //
 
+// parseIncludeStatement :: string -> { selectors: [string], filepath: Maybe string }
 var parseIncludeStatement = (function() {
   var pattern = /^(.+?)(?:\s+from\s+(?:"([^"]+)"|'([^']+)'))?$/;
   return function(str) {
@@ -50,11 +62,13 @@ var parseIncludeStatement = (function() {
   };
 }());
 
+// readDeclarations :: string -> (string -> Promise [Declaration]) -> (string -> Promise [Declaration]) -> [Promise [Declaration]]
 function readDeclarations(includeStatement, fromLocal, fromFile) {
   var s = parseIncludeStatement(includeStatement);
   return s.selectors.map(s.filepath ? fromFile(s.filepath) : fromLocal);
 }
 
+// walkDecls :: AST -> string -> ({prop: string, value: string} -> {???})
 function walkDecls(css, propFilter, transform) {
   var results = [];
   css.walkDecls(propFilter, function(decl) {
@@ -71,6 +85,7 @@ function each(container, fn) {
   return results;
 }
 
+// declForSelector :: string -> AST -> Maybe Declaration
 function declForSelector(selector) {
   return function(css) {
     var declarations = {};
