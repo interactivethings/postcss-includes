@@ -1,6 +1,8 @@
 var postcss = require('postcss');
 
 var INCLUDES_PROP = 'includes';
+var INCLUDES_VALUE_PATTERN = /^(.+?)(?:\s+from\s+(?:"([^"]+)"|'([^']+)'))?$/;
+
 
 module.exports = postcss.plugin('includes', function(opts) {
   var readFile = (opts && opts.readFile) || readFileMissingError;
@@ -14,73 +16,109 @@ module.exports = postcss.plugin('includes', function(opts) {
    Missing:
    - We need to expand includes in includes recursively
   */
-  return function(cssAst) {
-    return new Promise(function(resolve, reject) {
-
-      // expandIncludes :: {prop: string, value: string} -> number -> Promise Unit
-      var expandIncludes = function(decl /* includes: ... */, recursionDepth) {
-        recursionDepth || (recursionDepth = 0);
-
-        var declBlocksToInclude = readDeclarations(decl.value, declBlockFromLocal(cssAst /* FIXME: should clone AST */), declBlockFromFile(readFile));
-
-        // insertDecls :: Promise [Declaration] -> Promise Unit
-        var insertDecls = function(foreignDeclBlock) {
-          return foreignDeclBlock.then(function(db) {
-            return new Promise(function(res, rej) {
-              var promises = each(db, function(foreignDecl) {
-                return Promise.resolve(decl.parent.insertBefore(decl, foreignDecl));
-              });
-              return Promise.all(promises).then(res).catch(rej);
-            });
-          });
-        };
-
-        return Promise.all(declBlocksToInclude.map(insertDecls))
-          .then(function() { decl.remove(); });
-      };
-
-      return Promise.all(walkDecls(cssAst, INCLUDES_PROP, expandIncludes))
-        .then(resolve)
-        .catch(reject);
-    });
+  return function(cssAst /* Root */) {
+    return Promise.all(walkDecls(cssAst, INCLUDES_PROP, expandIncludes(cssAst, readFile, 0)));
   };
 });
+
+
+// Function which expands all "includes" declarations in the given node (Root
+// or Rule). This function modifies the node, so make sure to clone it first
+// if you want to keep the original intact.
+function expandIncludes(ast /* Node */, readFile, recursionDepth /* Number */) /* Promise Unit */ {
+  if (recursionDepth > 10) {
+    throw new Error('expandIncludes: Recursion depth limit exeeded');
+  }
+
+  return function(decl /* Declaration with type = "includes": ... */) /* Promise Unit */ {
+
+    // Find all replacements for the "includes" declaration.
+    return replacementsForDeclaration(ast, readFile, recursionDepth, decl).then(function(replacements /* [Node] */) {
+
+      // Insert all replacements before the declaration
+      replacements.forEach(function(replacement) {
+        decl.parent.insertBefore(decl, replacement);
+      });
+
+      // And then remove the original declaration (includes: ...)
+      decl.remove();
+    });
+  };
+}
+
+
+function replacementsForDeclaration(ast /* Root */, readFile, recursionDepth /* Number */, decl /* Declaration */) /* Promise [Node] */ {
+  // ASSERT: decl.prop === 'includes'
+
+  function go(localAst /* Root */, selectors /* [Selector] */) /* Promise [Node] */ {
+    return Promise.all(selectors.map(function(sel /* Selector */) {
+      var node = declForSelector(sel)(localAst);
+      if (node === undefined) {
+        throw new Error('parseIncludesDirective: selector "' + sel + '" not found');
+      } else {
+        return node;
+      }
+    }).map(function(rule /* Rule */) {
+      /* Need to clone the rule because 'walkDecls' modifies the object. */
+      var clonedRule = rule.clone();
+      return Promise.all(walkDecls(clonedRule, INCLUDES_PROP, expandIncludes(localAst, readFile, recursionDepth + 1))).then(function() {
+        return clonedRule.nodes;
+      });
+    }));
+  }
+
+  return parseIncludesDirective(decl.value).then(function(directive) {
+    if (directive.type === 'local') {
+      return go(ast, directive.selectors);
+    } else if (directive.type === 'foreign') {
+      return readFile(directive.filepath).then(function(contents) {
+        return postcss.parse(contents, {from: directive.filepath});
+      }).then(function(foreignAst) {
+        return go(foreignAst, directive.selectors);
+      });
+
+    } else {
+      throw new Error('parseIncludesDirective: Unknown directive');
+    }
+  })
+}
+
+
+
+
+// type IncludesDirective
+//   = LocalIncludes [Selector]
+//   | ForeignIncludes FilePath [Selector]
+
+// This function fails if it can't parse the value.
+function parseIncludesDirective(value /* String */) /* Promise IncludesDirective */ {
+  return new Promise(function(resolve, reject) {
+    var tokens = INCLUDES_VALUE_PATTERN.exec(value);
+    if (tokens === null) {
+      reject('parseIncludesDirective: Invalid directive: ' + value);
+    } else {
+      var selectors = tokens[1].split(/\s+/);
+      var filepath = tokens[2] || tokens[3];
+
+      if (filepath !== undefined) {
+        resolve({ type: 'foreign', selectors: selectors, filepath: filepath });
+      } else {
+        resolve({ type: 'local', selectors: selectors });
+      }
+    }
+  });
+}
 
 
 //
 // PURE FUNCTIONS
 //
 
-// parseIncludeStatement :: string -> { selectors: [string], filepath: Maybe string }
-var parseIncludeStatement = (function() {
-  var pattern = /^(.+?)(?:\s+from\s+(?:"([^"]+)"|'([^']+)'))?$/;
-  return function(str) {
-    var tokens = pattern.exec(str);
-    return tokens ? { selectors: tokens[1].split(/\s+/),
-                      filepath:  tokens[2] || tokens[3] /* Double or single quotes */ }
-                  : { selectors: [] };
-  };
-}());
-
-// readDeclarations :: string -> (string -> Promise [Declaration]) -> (string -> Promise [Declaration]) -> [Promise [Declaration]]
-function readDeclarations(includeStatement, fromLocal, fromFile) {
-  var s = parseIncludeStatement(includeStatement);
-  return s.selectors.map(s.filepath ? fromFile(s.filepath) : fromLocal);
-}
-
-// walkDecls :: AST -> string -> ({prop: string, value: string} -> {???})
-function walkDecls(css, propFilter, transform) {
+// Walk the declarations and collect the return values from the callback.
+function walkDecls(css /* Root */, propFilter /* String */, transform /* (String, Declaration) -> A */) /* [A] */ {
   var results = [];
   css.walkDecls(propFilter, function(decl) {
     results = results.concat(transform(decl));
-  });
-  return results;
-}
-
-function each(container, fn) {
-  var results = [];
-  container.each(function(d) {
-    results = results.concat(fn(d));
   });
   return results;
 }
@@ -97,28 +135,6 @@ function declForSelector(selector) {
       });
     });
     return declarations['.' + selector];
-  };
-}
-
-// declBlockFromLocal :: AST -> string -> Promise [Declaration]
-function declBlockFromLocal(css) {
-  return function(selector) {
-    return Promise.resolve(css)
-      .then(declForSelector(selector));
-  };
-}
-
-// declBlockFromFile :: (string -> string) -> string -> Promise [Declaration]
-function declBlockFromFile(readFile) {
-  return function(filepath) {
-    return function(selector) {
-      // FIXME: file is read multiple times
-      return readFile(filepath)
-        .then(function(contents) {
-          return postcss.parse(contents, {from: filepath});
-        })
-        .then(declForSelector(selector));
-    };
   };
 }
 
