@@ -5,10 +5,16 @@
   color: black;
   line-height: 2;
   margin: 1em 0;
+  strong {
+    font-weight: bold;
+  }
 }
 
 .fancy {
   includes: base;
+  strong {
+    font-weight: normal;
+  }
   /* box */
   includes: borderedBox paddedBox from './mixin-box.css';
 }

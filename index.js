@@ -147,15 +147,17 @@ function declForSelector(selector) {
     css.walkRules(function(rule) {
       rule.selectors.forEach(function(s) {
         if (rulesForSelector.hasOwnProperty(s)) {
-          throw new Error('declForSelector: selector is defined multiple times, can\'t merge automatically.');
+          throw new Error('Selector "'+s+'" is defined multiple times, can\'t merge automatically.');
         }
         // FIXME: needs to be solved differently
         /*
         if (s.indexOf(classSelector) >= 0 && someNonEmpty(s.split(classSelector))) {
           throw new Error('declForSelector: the base selector is used multiple times, e.g. .mixin:hover{}, which can lead to unexpected results.');
         }
-        */
-        rulesForSelector[s] = rule;
+         */
+        if (s === classSelector) {
+          rulesForSelector[s] = rule;
+        }
       });
     });
     return rulesForSelector[classSelector];
