@@ -41,31 +41,38 @@ It's possible to include declarations from another file (the result will be the 
 This module has only been tested with Webpack so far. The following shows an example of how to integrate the plugin with Webpack; what you can see is that a `readFile` function is defined. The reason the `readFile` function needs to be defined like this is so that we can load files referenced by an `includes` rule using Webpack’s load paths. This example also shows that the `postcss` config option can be a function that returns an array of plugins to use. 
 
 ```js
-// webpack.config.js
-module.exports = {
-  entry: './main',
-  output: 'bundle.js',
-  …
-  postcss: function () {
-    // The context of this function is the same provided to postcss-loader
-    // see: http://webpack.github.io/docs/loaders.html
-    var loaderContext = this
-    function readFile (filepath) {
-      return new Promise(function (resolve, reject) {
-        loaderContext.resolve(loaderContext.context, filepath, function (moduleError, realpath) {
-          if (moduleError) return reject(moduleError)
-          fs.readFile(realpath, 'utf8', function (readFileError, contents) {
-            readFileError ? reject(readFileError) : resolve(contents)
-          })
-        })
-      })
-    }
+// postcss.config.js
+// https://github.com/michael-ciniawsky/postcss-load-config
 
-    return [
-      require('postcss-includes')({readFile: readFile}),
-      require('autoprefixer')
+const fs = require("fs");
+
+module.exports = ctx => {
+  function readFile(filepath) {
+    return new Promise(function(resolve, reject) {
+      ctx.webpack.resolve(ctx.webpack.context, filepath, function(moduleError, realpath) {
+        if (moduleError) return reject(moduleError);
+        fs.readFile(realpath, "utf8", function(readFileError, contents) {
+          readFileError ? reject(readFileError) : resolve(contents);
+        });
+      });
+    });
+  }
+
+  return {
+    plugins: [
+      require("postcss-includes")({ readFile }),
+      require("postcss-flexbugs-fixes"),
+      require("postcss-preset-env")({
+        autoprefixer: {
+          flexbox: "no-2009"
+        }
+      }),
+      require("postcss-nested"),
+      require("postcss-css-variables")({
+        preserve: false,
+        variables: require("./src/constants")
+      })
     ]
-  },
-  …
-}
+  };
+};
 ```
